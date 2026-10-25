@@ -28,8 +28,9 @@ def load_data():
     )
     df = pd.DataFrame(response.data)
     if not df.empty:
-        for col in ["weight", "predicted_return", "current_price"]:
-            df[col] = pd.to_numeric(df[col])
+        for col in ["weight", "predicted_return", "current_price", "actual_return"]:
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col])
         df["prediction_date"] = pd.to_datetime(df["prediction_date"]).dt.date
     return df
 
@@ -57,8 +58,9 @@ with right:
 
 st.subheader("Details")
 st.dataframe(
-    day[["weight", "predicted_return", "current_price"]].style.format(
-        {"weight": "{:.1%}", "predicted_return": "{:+.2%}", "current_price": "${:,.2f}"}
+    day[["weight", "predicted_return", "current_price", "actual_return"]].style.format(
+        {"weight": "{:.1%}", "predicted_return": "{:+.2%}", "current_price": "${:,.2f}", "actual_return": "{:+.2%}"},
+        na_rep="pending",
     )
 )
 
@@ -68,3 +70,21 @@ if len(history) > 1:
     st.line_chart(history * 100)
 else:
     st.info("History will appear here once the pipeline has run on more than one day.")
+st.subheader("Live track record")
+if "actual_return" in df.columns and df["actual_return"].notna().any():
+    tracked = df.dropna(subset=["actual_return"]).copy()
+    tracked["correct"] = (tracked["predicted_return"] > 0) == (tracked["actual_return"] > 0)
+    tracked["contribution"] = tracked["weight"] * tracked["actual_return"]
+
+    a, b, c = st.columns(3)
+    a.metric("Days tracked", tracked["prediction_date"].nunique())
+    b.metric("Forecasts checked", len(tracked))
+    c.metric("Up/down hit rate", f"{tracked['correct'].mean():.1%}")
+
+    daily = tracked.groupby("prediction_date").agg(
+        **{"Our portfolio": ("contribution", "sum"), "Equal split": ("actual_return", "mean")}
+    )
+    st.line_chart(((1 + daily).cumprod() - 1) * 100)
+    st.caption("Cumulative % return, close to close, before trading costs. A coin flip hits 50%.")
+else:
+    st.info("The track record fills in after the first full trading day has closed.")    
